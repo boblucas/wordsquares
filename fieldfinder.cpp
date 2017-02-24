@@ -235,7 +235,7 @@ inline unsigned getMask(const std::vector<Dawg**>& dawgs)
 	return result;
 }
 
-void exhaustiveIterative(std::vector<Dawg*>& dawgs, const std::vector<std::vector<char>>& pathIndicesRaw, const std::vector<Path>& originalPaths, char start)
+void exhaustiveIterative(std::vector<Dawg*>& dawgs, const std::vector<std::vector<char>>& pathIndicesRaw, const std::vector<Path>& originalPaths, int start)
 {
 	std::vector<std::vector<Dawg**>> paths = getCombinedPaths(dawgs, pathIndicesRaw);
 
@@ -245,7 +245,6 @@ void exhaustiveIterative(std::vector<Dawg*>& dawgs, const std::vector<std::vecto
 	unsigned maskStack[letterCount] = {};
 
 	maskStack[1] = getMask(paths[1]);
-	stack[0] = start;
 
 	char* s = &stack[1];
 	unsigned* m = &maskStack[1];
@@ -256,7 +255,20 @@ void exhaustiveIterative(std::vector<Dawg*>& dawgs, const std::vector<std::vecto
 	if(!maskStack[1])
 		return;
 
-	while(s != stack)
+	if(start >= 0)
+	{
+		*s = start;
+		if(((*m >> start) & 1) == 0)
+			return;
+
+		for(Dawg**& d : *p)
+			*d = (*d)->getChild(*s);
+
+		*(++s) = 0;
+		*(++m) = getMask(*(++p));
+	}
+
+	while(s != stack+(start >= 0))
 	{
 		//Move to the next valid child
 		*s += __builtin_ctz(*m >> *s);
@@ -293,44 +305,31 @@ void exhaustiveIterative(std::vector<Dawg*>& dawgs, const std::vector<std::vecto
 	}
 }
 
-void exhaustiveSubRange(const std::vector<Dawg*>& dawgs, const std::vector<std::vector<char>>& pathIndices, const std::vector<Path>& paths, int start, int end, unsigned __int128 anagram)
+void multithread(std::vector<Dawg*>& dawgs, const std::vector<std::vector<char>>& pathIndicesRaw, const std::vector<Path>& originalPaths)
 {
-	unsigned __int128 letterValue = 1;
-	letterValue <<= start * 5;
-	for(int i = start; i < end; i++)
+	static int letter = 0;
+
+	auto f = [&]()
 	{
-		std::vector<Dawg*> copy = dawgs;
-		if(((anagram >> (i * 5)) & 0b11111) == 0)
-			goto SKIP_MULTI_LETTER;
-
-		for(const int& path : pathIndices[0])
+		while(letter < 26)
 		{
-			copy[path] = dawgs[path]->getChild(i);
-			if(!copy[path])
-				goto SKIP_MULTI_LETTER;
+			int next = letter++;
+			if(next < 26)
+			{
+				std::vector<Dawg*> copy = dawgs;
+				exhaustiveIterative(copy, pathIndicesRaw, originalPaths, next);
+			}
 		}
-		exhaustiveIterative(copy, pathIndices, paths, i);
-		SKIP_MULTI_LETTER:;
-		letterValue <<= 5;
-	}
-	//std::cout << start << " done" << std::endl;
-}
+	};
 
-void exhaustiveMultithreaded(const std::vector<Dawg*>& dawgs, const std::vector<std::vector<char>>& pathIndices, const std::vector<Path>& paths,unsigned __int128 anagram)
-{
+	unsigned cores = std::thread::hardware_concurrency();
+	if(cores == 0) cores = 4;
 	std::vector<std::thread> threads;
-	//This balance was found by experimentation on a big dutch wordlist
-	threads.push_back(std::thread(exhaustiveSubRange, dawgs, pathIndices, paths, 0, 2, anagram));
-	threads.push_back(std::thread(exhaustiveSubRange, dawgs, pathIndices, paths, 2, 5, anagram));
-	threads.push_back(std::thread(exhaustiveSubRange, dawgs, pathIndices, paths, 5, 8, anagram));
-	threads.push_back(std::thread(exhaustiveSubRange, dawgs, pathIndices, paths, 8, 12, anagram));
-	threads.push_back(std::thread(exhaustiveSubRange, dawgs, pathIndices, paths,12, 15, anagram));
-	threads.push_back(std::thread(exhaustiveSubRange, dawgs, pathIndices, paths,15, 18, anagram));
-	threads.push_back(std::thread(exhaustiveSubRange, dawgs, pathIndices, paths,18, 20, anagram));
-	threads.push_back(std::thread(exhaustiveSubRange, dawgs, pathIndices, paths,20, 26, anagram));
+	for(int i = 0; i < cores; i++)
+		threads.push_back(std::thread(f));
 
-	for(std::thread& thread : threads)
-		thread.join();
+	for(auto& t : threads)
+		t.join();
 }
 
 int main(int argc, char* argv[])
@@ -342,25 +341,8 @@ int main(int argc, char* argv[])
 		return 1;
 	}
 
-	unsigned __int128 anagram = 0;
-	if(argc == 4)
-	{
-		for(char* c = argv[3]; *c; c++)
-		{
-			unsigned __int128 converted = 1;
-			converted <<= ((*c) - 'a') * 5;
-			anagram += converted;
-		}
-	}
-	else
-	{
-		anagram = 0xffffffff;
-		anagram <<= 64;
-		anagram |= 0xffffffff;
-	}
-
 	std::vector<Path> paths = loadTopologyFile(std::string(argv[1]));
 	std::vector<Dawg*> dawgs = loadDictionaryFile(std::string(argv[2]), paths);
-	exhaustiveMultithreaded(dawgs, invertTopology(paths), paths, anagram);
+	multithread(dawgs, invertTopology(paths), paths);
 	return 0;
 }
