@@ -137,6 +137,27 @@ std::vector<Dawg*> loadDictionaryFile(std::string filename, std::vector<Path> to
 	return dawgs;
 }
 
+void optimizeToplogy(std::vector<Path>& topology)
+{
+	//Compress id's
+	std::vector<unsigned> mapping;
+	for(Path& p : topology) for(unsigned& l : p)
+		if(std::find(mapping.begin(), mapping.end(), l) == mapping.end())
+			mapping.push_back(l);
+
+	std::sort(mapping.begin(), mapping.end());
+
+	unsigned index = 0;
+	for(unsigned& i : mapping)
+	{
+		for(Path& p : topology)
+			for(unsigned& l : p)
+				if(l == i)
+					l = index;
+		++index;
+	}
+}
+
 //Essentially loads lines of comma seperated integers into a 2D array
 std::vector<Path> loadTopologyFile(std::string filename)
 {
@@ -163,6 +184,13 @@ std::vector<Path> loadTopologyFile(std::string filename)
 		}
 		
 		topology.push_back(path);
+	}
+
+	optimizeToplogy(topology);
+	for(Path& p : topology)
+	{
+		for(unsigned& l : p) std::cout << l << ' ';
+		std::cout << std::endl;
 	}
 
 	return topology;
@@ -244,15 +272,15 @@ void exhaustiveIterative(std::vector<Dawg*>& dawgs, const std::vector<std::vecto
 	char stack[letterCount] = {};
 	unsigned maskStack[letterCount] = {};
 
-	maskStack[1] = getMask(paths[1]);
+	maskStack[0] = getMask(paths[0]);
 
-	char* s = &stack[1];
-	unsigned* m = &maskStack[1];
-	auto p = paths.begin() + 1;
+	char* s = stack;
+	unsigned* m = maskStack;
+	auto p = paths.begin();
 
 	const char* const sEnd = s + letterCount - 2;
 
-	if(!maskStack[1])
+	if(!maskStack[0])
 		return;
 
 	if(start >= 0)
@@ -268,7 +296,7 @@ void exhaustiveIterative(std::vector<Dawg*>& dawgs, const std::vector<std::vecto
 		*(++m) = getMask(*(++p));
 	}
 
-	while(s != stack+(start >= 0))
+	while(s != stack-1+(start >= 0))
 	{
 		//Move to the next valid child
 		*s += __builtin_ctz(*m >> *s);
