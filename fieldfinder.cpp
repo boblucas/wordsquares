@@ -43,12 +43,16 @@ struct Dawg
 			if(((dawg->mask >> (*word - 'a')) & 1) == 0)
 			{
 				dawg->mask |= 1 << (*word - 'a');
-				dawg->children.reserve(dawg->children.size() + 1);
-				dawg->children.insert(dawg->children.begin() + dawg->getIndex(*word - 'a'), Dawg());
+				if(*(word+1))
+				{
+					dawg->children.reserve(dawg->children.size() + 1);
+					dawg->children.insert(dawg->children.begin() + dawg->getIndex(*word - 'a'), Dawg());
+				}
 			}
 
 			//go to next letter
-			dawg = dawg->getChild(*word - 'a');
+			if(dawg->children.size())
+				dawg = dawg->getChild(*word - 'a');
 			word++;
 		}
 	}
@@ -81,7 +85,6 @@ struct CompactDawg
 	CompactDawg(CompactDawg* children, uint32_t mask) : children(children), mask(mask) {}
 };
 
-
 CompactDawg* dawgToArray(Dawg* in)
 {
 	unsigned s = in->size();
@@ -92,7 +95,7 @@ CompactDawg* dawgToArray(Dawg* in)
 	while(q.size())
 	{
 		Dawg* d = q.front();
-		*out = CompactDawg(out + q.size(), d->mask);
+		*out = CompactDawg(d->children.size() ? out + q.size() : 0, d->mask);
 		q.pop();
 
 		for(Dawg& e : d->children)
