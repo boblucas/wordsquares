@@ -8,6 +8,7 @@
 #include <sstream>
 #include <thread>
 #include <vector>
+#include <queue>
 #include <stack>
 
 typedef std::vector<unsigned> Path;
@@ -59,7 +60,51 @@ struct Dawg
 			child.fillParent();
 		}
 	}
+
+	unsigned size()
+	{
+		unsigned s = 1;
+		for(Dawg& child : children)
+			s += child.size();
+		return s;
+	}
 };
+
+struct CompactDawg
+{
+	CompactDawg* children;
+	CompactDawg* parent;
+	unsigned mask;
+	inline unsigned getIndex(char letter) { return __builtin_popcount(mask & ((1 << letter) - 1)); }
+	inline CompactDawg* getChild(char letter) { return &children[getIndex(letter)]; }
+	CompactDawg() : children(0), parent(0), mask(0) {}
+	CompactDawg(CompactDawg* children, CompactDawg* parent, unsigned mask) : children(children), parent(parent), mask(mask) {}
+};
+
+
+CompactDawg* dawgToArray(Dawg* in)
+{
+	CompactDawg* compacted = new CompactDawg[in->size()];
+	CompactDawg* out = compacted;
+	std::queue<Dawg*> q;
+	q.push(in);
+	std::map<Dawg*, CompactDawg*> parents;
+	while(q.size())
+	{
+		Dawg* d = q.front();
+		*out = CompactDawg(out + q.size(), parents[d], d->mask);
+		q.pop();
+
+		for(Dawg& e : d->children)
+		{
+			parents[&e] = out;
+			q.push(&e);
+		}
+
+		++out;
+	}
+	return compacted;
+}
 
 Path normalizePath(const Path& path)
 {
@@ -255,7 +300,7 @@ std::vector<std::vector<char>> getCombinedPaths(const std::vector<std::vector<ch
 	return combined;
 }
 
-inline unsigned getMask(const std::vector<char>& indices, const std::vector<Dawg*>& dawgs)
+inline unsigned getMask(const std::vector<char>& indices, const std::vector<CompactDawg*>& dawgs)
 {
 	unsigned result = 0b11111111111111111111111111;
 	for(const char& i : indices)
@@ -263,7 +308,7 @@ inline unsigned getMask(const std::vector<char>& indices, const std::vector<Dawg
 	return result;
 }
 
-void exhaustiveIterative(std::vector<Dawg*>& dawgs, const std::vector<std::vector<char>>& pathIndicesRaw, const std::vector<Path>& originalPaths, int start)
+void exhaustiveIterative(std::vector<CompactDawg*>& dawgs, const std::vector<std::vector<char>>& pathIndicesRaw, const std::vector<Path>& originalPaths, int start)
 {
 	std::vector<std::vector<char>> paths = getCombinedPaths(pathIndicesRaw);
 
@@ -328,6 +373,19 @@ void exhaustiveIterative(std::vector<Dawg*>& dawgs, const std::vector<std::vecto
 
 void multithread(std::vector<Dawg*>& dawgs, const std::vector<std::vector<char>>& pathIndicesRaw, const std::vector<Path>& originalPaths)
 {
+	std::map<Dawg*, CompactDawg*> duplicates;
+
+	std::vector<CompactDawg*> converted;
+	converted.reserve(dawgs.size());
+	for(Dawg* d : dawgs)
+	{
+		if(duplicates.count(d))
+			converted.push_back(duplicates[d]);
+		else
+			converted.push_back(duplicates[d] = dawgToArray(d));
+	}
+
+
 	static int letter = 0;
 
 	auto f = [&]()
@@ -337,13 +395,13 @@ void multithread(std::vector<Dawg*>& dawgs, const std::vector<std::vector<char>>
 			int next = letter++;
 			if(next < 26)
 			{
-				std::vector<Dawg*> copy = dawgs;
+				std::vector<CompactDawg*> copy = converted;
 				exhaustiveIterative(copy, pathIndicesRaw, originalPaths, next);
 			}
 		}
 	};
 
-	unsigned cores = std::thread::hardware_concurrency();
+	unsigned cores = 1;// std::thread::hardware_concurrency();
 	if(cores == 0) cores = 4;
 	std::vector<std::thread> threads;
 	for(int i = 0; i < cores; i++)
