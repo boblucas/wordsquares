@@ -238,41 +238,40 @@ std::vector<std::vector<char>> invertTopology(const std::vector<Path>& paths)
 }
 
 
-std::vector<std::vector<Dawg**>> getCombinedPaths(std::vector<Dawg*>& dawgs, const std::vector<std::vector<char>>& pathIndicesRaw)
+std::vector<std::vector<char>> getCombinedPaths(const std::vector<std::vector<char>>& pathIndicesRaw)
 {
-	std::vector<std::vector<Dawg**>> combined;
+	std::vector<std::vector<char>> combined;
 	combined.reserve(pathIndicesRaw.size());
 
 	for(const auto& paths : pathIndicesRaw)
 	{
-		std::vector<Dawg**> pathsCombined;
+		std::vector<char> pathsCombined;
 		pathsCombined.reserve(paths.size());
 		for(char c : paths)
-			pathsCombined.push_back(&dawgs[c]);
+			pathsCombined.push_back(c);
 		
 		combined.push_back(pathsCombined);
 	}
 	return combined;
 }
 
-inline unsigned getMask(const std::vector<Dawg**>& dawgs)
+inline unsigned getMask(const std::vector<char>& indices, const std::vector<Dawg*>& dawgs)
 {
 	unsigned result = 0b11111111111111111111111111;
-	for(const Dawg* const* const d : dawgs)
-		result &= (*d)->mask;
+	for(const char& i : indices)
+		result &= dawgs[i]->mask;
 	return result;
 }
 
 void exhaustiveIterative(std::vector<Dawg*>& dawgs, const std::vector<std::vector<char>>& pathIndicesRaw, const std::vector<Path>& originalPaths, int start)
 {
-	std::vector<std::vector<Dawg**>> paths = getCombinedPaths(dawgs, pathIndicesRaw);
+	std::vector<std::vector<char>> paths = getCombinedPaths(pathIndicesRaw);
 
 	unsigned letterCount = paths.size();
-
 	char stack[letterCount] = {};
 	unsigned maskStack[letterCount] = {};
 
-	maskStack[0] = getMask(paths[0]);
+	maskStack[0] = getMask(paths[0], dawgs);
 
 	char* s = stack;
 	unsigned* m = maskStack;
@@ -289,11 +288,11 @@ void exhaustiveIterative(std::vector<Dawg*>& dawgs, const std::vector<std::vecto
 		if(((*m >> start) & 1) == 0)
 			return;
 
-		for(Dawg**& d : *p)
-			*d = (*d)->getChild(*s);
+		for(const char& d : *p)
+			dawgs[d] = dawgs[d]->getChild(*s);
 
 		*(++s) = 0;
-		*(++m) = getMask(*(++p));
+		*(++m) = getMask(*(++p), dawgs);
 	}
 
 	while(s != stack-1+(start >= 0))
@@ -305,11 +304,11 @@ void exhaustiveIterative(std::vector<Dawg*>& dawgs, const std::vector<std::vecto
 		if(s < sEnd)
 		{
 			//Move down
-			for(Dawg**& d : *p)
-				*d = (*d)->getChild(*s);
+			for(const char& d : *p)
+				dawgs[d] = dawgs[d]->getChild(*s);
 
 			*(++s) = 0;
-			*(++m) = getMask(*(++p));
+			*(++m) = getMask(*(++p), dawgs);
 		}
 		else
 		{
@@ -325,8 +324,8 @@ void exhaustiveIterative(std::vector<Dawg*>& dawgs, const std::vector<std::vecto
 			--s;
 			--m;
 			--p;
-			for(Dawg**& d : *p)
-				*d = (*d)->parent;
+			for(const char& d : *p)
+				dawgs[d] = dawgs[d]->parent;
 			//And right
 			++(*s);
 		}
