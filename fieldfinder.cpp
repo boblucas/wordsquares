@@ -74,12 +74,11 @@ struct Dawg
 struct CompactDawg
 {
 	CompactDawg* children;
-	CompactDawg* parent;
 	uint32_t mask;
 	inline unsigned getIndex(char letter) { return __builtin_popcount(mask & ((1 << letter) - 1)); }
 	inline CompactDawg* getChild(char letter) { return &children[getIndex(letter)]; }
-	CompactDawg() : children(0), parent(0), mask(0) {}
-	CompactDawg(CompactDawg* children, CompactDawg* parent, uint32_t mask) : children(children), parent(parent), mask(mask) {}
+	CompactDawg() : children(0), mask(0) {}
+	CompactDawg(CompactDawg* children, uint32_t mask) : children(children), mask(mask) {}
 };
 
 
@@ -90,18 +89,14 @@ CompactDawg* dawgToArray(Dawg* in)
 	CompactDawg* out = compacted;
 	std::queue<Dawg*> q;
 	q.push(in);
-	std::map<Dawg*, CompactDawg*> parents;
 	while(q.size())
 	{
 		Dawg* d = q.front();
-		*out = CompactDawg(out + q.size(), parents[d], d->mask);
+		*out = CompactDawg(out + q.size(), d->mask);
 		q.pop();
 
 		for(Dawg& e : d->children)
-		{
-			parents[&e] = out;
 			q.push(&e);
-		}
 
 		++out;
 	}
@@ -317,6 +312,7 @@ void exhaustiveIterative(std::vector<CompactDawg*>& dawgs, const std::vector<std
 	unsigned letterCount = paths.size();
 	char stack[letterCount] = {};
 	uint32_t maskStack[letterCount] = {getMask(paths[0], dawgs)};
+	CompactDawg* parents[letterCount][dawgs.size()];
 
 	char i = 0;
 
@@ -330,7 +326,10 @@ void exhaustiveIterative(std::vector<CompactDawg*>& dawgs, const std::vector<std
 			return;
 
 		for(const char& d : paths[i])
+		{
+			parents[i][d] = dawgs[d];
 			dawgs[d] = dawgs[d]->getChild(stack[i]);
+		}
 
 		++i;
 		stack[i] = 0;
@@ -347,7 +346,10 @@ void exhaustiveIterative(std::vector<CompactDawg*>& dawgs, const std::vector<std
 		{
 			//Move down
 			for(const char& d : paths[i])
+			{
+				parents[i][d] = dawgs[d];
 				dawgs[d] = dawgs[d]->getChild(stack[i]);
+			}
 
 			++i;
 			stack[i] = 0;
@@ -366,7 +368,7 @@ void exhaustiveIterative(std::vector<CompactDawg*>& dawgs, const std::vector<std
 			//Move up
 			--i;
 			for(const char& d : paths[i])
-				dawgs[d] = dawgs[d]->parent;
+				dawgs[d] = parents[i][d];
 			//And right
 			++stack[i];
 		}
