@@ -269,65 +269,59 @@ void exhaustiveIterative(std::vector<Dawg*>& dawgs, const std::vector<std::vecto
 
 	unsigned letterCount = paths.size();
 	char stack[letterCount] = {};
-	unsigned maskStack[letterCount] = {};
+	unsigned maskStack[letterCount] = {getMask(paths[0], dawgs)};
 
-	maskStack[0] = getMask(paths[0], dawgs);
-
-	char* s = stack;
-	unsigned* m = maskStack;
-	auto p = paths.begin();
-
-	const char* const sEnd = s + letterCount - 2;
+	char i = 0;
 
 	if(!maskStack[0])
 		return;
 
 	if(start >= 0)
 	{
-		*s = start;
-		if(((*m >> start) & 1) == 0)
+		stack[i] = start;
+		if(((maskStack[i] >> start) & 1) == 0)
 			return;
 
-		for(const char& d : *p)
-			dawgs[d] = dawgs[d]->getChild(*s);
+		for(const char& d : paths[i])
+			dawgs[d] = dawgs[d]->getChild(stack[i]);
 
-		*(++s) = 0;
-		*(++m) = getMask(*(++p), dawgs);
+		++i;
+		stack[i] = 0;
+		maskStack[i] = getMask(paths[i], dawgs);
 	}
 
-	while(s != stack-1+(start >= 0))
+	while(i)
 	{
 		//Move to the next valid child
-		*s += __builtin_ctz(*m >> *s);
+		stack[i] += __builtin_ctz(maskStack[i] >> stack[i]);
 
 		//If we are not at the last node yet
-		if(s < sEnd)
+		if(i < letterCount-1)
 		{
 			//Move down
-			for(const char& d : *p)
-				dawgs[d] = dawgs[d]->getChild(*s);
+			for(const char& d : paths[i])
+				dawgs[d] = dawgs[d]->getChild(stack[i]);
 
-			*(++s) = 0;
-			*(++m) = getMask(*(++p), dawgs);
+			++i;
+			stack[i] = 0;
+			maskStack[i] = getMask(paths[i], dawgs);
 		}
 		else
 		{
 			//Print result and move right
 			printResults(originalPaths, stack);
-			++(*s);
+			++stack[i];
 		}
 
 		//If there are no children left, and we can move up
-		while((*m >> *s) == 0 && s != stack)
+		while((maskStack[i] >> stack[i]) == 0 && i)
 		{
 			//Move up
-			--s;
-			--m;
-			--p;
-			for(const char& d : *p)
+			--i;
+			for(const char& d : paths[i])
 				dawgs[d] = dawgs[d]->parent;
 			//And right
-			++(*s);
+			++stack[i];
 		}
 	}
 }
