@@ -10,6 +10,7 @@
 #include <vector>
 #include <queue>
 #include <stack>
+#include <queue>
 
 typedef std::vector<unsigned> Path;
 
@@ -74,17 +75,18 @@ struct CompactDawg
 {
 	CompactDawg* children;
 	CompactDawg* parent;
-	unsigned mask;
+	uint32_t mask;
 	inline unsigned getIndex(char letter) { return __builtin_popcount(mask & ((1 << letter) - 1)); }
 	inline CompactDawg* getChild(char letter) { return &children[getIndex(letter)]; }
 	CompactDawg() : children(0), parent(0), mask(0) {}
-	CompactDawg(CompactDawg* children, CompactDawg* parent, unsigned mask) : children(children), parent(parent), mask(mask) {}
+	CompactDawg(CompactDawg* children, CompactDawg* parent, uint32_t mask) : children(children), parent(parent), mask(mask) {}
 };
 
 
 CompactDawg* dawgToArray(Dawg* in)
 {
-	CompactDawg* compacted = new CompactDawg[in->size()];
+	unsigned s = in->size();
+	CompactDawg* compacted = new CompactDawg[s];
 	CompactDawg* out = compacted;
 	std::queue<Dawg*> q;
 	q.push(in);
@@ -300,9 +302,9 @@ std::vector<std::vector<char>> getCombinedPaths(const std::vector<std::vector<ch
 	return combined;
 }
 
-inline unsigned getMask(const std::vector<char>& indices, const std::vector<CompactDawg*>& dawgs)
+inline uint32_t getMask(const std::vector<char>& indices, const std::vector<CompactDawg*>& dawgs)
 {
-	unsigned result = 0b11111111111111111111111111;
+	uint32_t result = 0b11111111111111111111111111;
 	for(const char& i : indices)
 		result &= dawgs[i]->mask;
 	return result;
@@ -314,7 +316,7 @@ void exhaustiveIterative(std::vector<CompactDawg*>& dawgs, const std::vector<std
 
 	unsigned letterCount = paths.size();
 	char stack[letterCount] = {};
-	unsigned maskStack[letterCount] = {getMask(paths[0], dawgs)};
+	uint32_t maskStack[letterCount] = {getMask(paths[0], dawgs)};
 
 	char i = 0;
 
