@@ -83,7 +83,79 @@ struct CompactDawg
 	inline CompactDawg* getChild(char letter) { return &children[getIndex(letter)]; }
 	CompactDawg() : children(0), mask(0) {}
 	CompactDawg(CompactDawg* children, uint32_t mask) : children(children), mask(mask) {}
+
+	uint32_t depth()
+	{
+		if(children) return 1 + children->depth();
+		else return 1;
+	}
+
+	void normalized(std::vector<uint32_t>& out)
+	{
+		out.push_back((mask << 6) | depth());
+		if(children)
+			for(unsigned i = 0; i < __builtin_popcount(mask); ++i)
+				children[i].normalized(out);
+	}
+
+	void listChildren(std::set<CompactDawg*>& out, bool self = false)
+	{
+		if(self) out.insert(this);
+		if(children)
+			for(unsigned i = 0; i < __builtin_popcount(mask); ++i)
+			{
+				out.insert(children + i);
+				//children[i].listChildren(out, true);
+			}
+	}
 };
+
+
+CompactDawg* compress(CompactDawg* in, CompactDawg* end)
+{
+	//Share as much pointers as possible
+	std::map<std::vector<uint32_t>, CompactDawg*> nodes;
+	std::set<CompactDawg*> removed;
+
+	for(CompactDawg* i = end - 1; i >= in; --i)
+	{
+		if(removed.count(i)) continue;
+
+		std::vector<uint32_t> x;
+		i->normalized(x);
+
+		if(nodes.count(x) && i->children != nodes[x]->children)
+		{
+			i->listChildren(removed);
+			i->children = nodes[x]->children;
+		}
+		else
+			nodes[x] = i;
+	}
+
+	std::cout << "Compressing, total nodes: " << end-in << " after compression: " << end-in-removed.size() << std::endl;
+
+	//And re-layout in memory
+	std::map<CompactDawg*, CompactDawg*> locations;
+
+	CompactDawg* i = in;
+	CompactDawg* j = in;
+	while(i < end)
+	{
+		if(!removed.count(i))
+		{
+			locations[i] = j;
+			if(j != i) *j = CompactDawg(i->children, i->mask);
+			++j;
+		}
+		++i;
+	}
+
+	for(CompactDawg* i = in; i < end-removed.size(); ++i)
+		i->children = locations[i->children];
+
+	return in;
+}
 
 CompactDawg* dawgToArray(Dawg* in)
 {
@@ -103,6 +175,7 @@ CompactDawg* dawgToArray(Dawg* in)
 
 		++out;
 	}
+	compacted = compress(compacted, compacted+s);
 	return compacted;
 }
 
@@ -232,6 +305,7 @@ std::vector<Path> loadTopologyFile(std::string filename)
 	}
 
 	optimizeToplogy(topology);
+	std::cout << "optimized topology:" << std::endl;
 	for(Path& p : topology)
 	{
 		for(unsigned& l : p) std::cout << l << ' ';
@@ -249,7 +323,7 @@ void printResults(const std::vector<Path>& originalPaths, char* stack)
 	{
 		std::string word;
 		for(const char& c : path)
-			word += stack[c] + 'a';
+			word += stack[(unsigned)c] + 'a';
 
 		if(occured.count(word))
 			return;
@@ -317,7 +391,7 @@ void exhaustiveIterative(std::vector<CompactDawg*>& dawgs, const std::vector<std
 	uint32_t maskStack[letterCount] = {getMask(paths[0], dawgs)};
 	CompactDawg* parents[letterCount][dawgs.size()];
 
-	char i = 0;
+	unsigned char i = 0;
 
 	if(!maskStack[0])
 		return;
