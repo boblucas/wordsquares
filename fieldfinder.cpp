@@ -77,16 +77,16 @@ struct Dawg
 
 struct CompactDawg
 {
-	CompactDawg* children;
+	uint32_t children;
 	uint32_t mask;
 	inline unsigned getIndex(char letter) { return __builtin_popcount(mask & ((1 << letter) - 1)); }
-	inline CompactDawg* getChild(char letter) { return &children[getIndex(letter)]; }
+	inline CompactDawg* getChild(char letter) { return (this + children + getIndex(letter)); }
 	CompactDawg() : children(0), mask(0) {}
-	CompactDawg(CompactDawg* children, uint32_t mask) : children(children), mask(mask) {}
+	CompactDawg(uint32_t children, uint32_t mask) : children(children), mask(mask) {}
 
 	uint32_t depth()
 	{
-		if(children) return 1 + children->depth();
+		if(children) return 1 + (this + children)->depth();
 		else return 1;
 	}
 
@@ -95,18 +95,13 @@ struct CompactDawg
 		out.push_back((mask << 6) | depth());
 		if(children)
 			for(unsigned i = 0; i < __builtin_popcount(mask); ++i)
-				children[i].normalized(out);
+				(this+children)[i].normalized(out);
 	}
 
-	void listChildren(std::set<CompactDawg*>& out, bool self = false)
+	void listChildren(std::set<CompactDawg*>& out)
 	{
-		if(self) out.insert(this);
-		if(children)
-			for(unsigned i = 0; i < __builtin_popcount(mask); ++i)
-			{
-				out.insert(children + i);
-				//children[i].listChildren(out, true);
-			}
+		for(unsigned i = 0; i < __builtin_popcount(mask) && children; ++i)
+			out.insert(this + children + i);
 	}
 };
 
@@ -124,10 +119,11 @@ void compress(std::vector<CompactDawg>& in)
 		std::vector<uint32_t> x;
 		i->normalized(x);
 
-		if(nodes.count(x) && i->children != nodes[x]->children)
+		if(nodes.count(x) && 
+			( &(*i) + i->children) != (nodes[x] + nodes[x]->children))
 		{
 			i->listChildren(removed);
-			i->children = nodes[x]->children;
+			i->children = (uint32_t)((nodes[x] + nodes[x]->children) - &(*i));
 		}
 		else
 			nodes[x] = &(*i);
@@ -136,24 +132,24 @@ void compress(std::vector<CompactDawg>& in)
 	std::cout << "Compressing, total nodes: " << in.size() << " after compression: " << in.size()-removed.size() << std::endl;
 
 	//And re-layout in memory
-	std::map<CompactDawg*, CompactDawg*> locations;
+	std::map<unsigned, unsigned> locations;
 
-	auto i = in.begin();
-	auto j = in.begin();
-	while(i != in.end())
+	unsigned j = 0;
+	for(unsigned i = 0; i < in.size(); ++i)
 	{
-		if(!removed.count(&(*i)))
+		if(!removed.count(in.data() + i))
 		{
-			locations[&(*i)] = &(*j);
-			if(j != i) *j = CompactDawg(i->children, i->mask);
+			locations[i] = j;
+			in[j] = in[i];
+			in[j].children += i;
 			++j;
 		}
-		++i;
 	}
 
-	in.resize(std::distance(in.begin(), j));
-	for(CompactDawg& d : in)
-		d.children = locations[d.children];
+	in.resize(j);
+	for(unsigned i = 0; i < in.size(); ++i)
+		in[i].children = locations[in[i].children] - i;
+
 }
 
 std::vector<CompactDawg> dawgToArray(Dawg* in)
@@ -167,7 +163,7 @@ std::vector<CompactDawg> dawgToArray(Dawg* in)
 	while(q.size())
 	{
 		Dawg* d = q.front();
-		*out = CompactDawg(d->children.size() ? &(*(out + q.size())) : 0, d->mask);
+		*out = CompactDawg(d->children.size() ? q.size() : 0, d->mask);
 		q.pop();
 
 		for(Dawg& e : d->children)
