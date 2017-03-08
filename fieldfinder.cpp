@@ -12,6 +12,8 @@
 #include <stack>
 #include <queue>
 
+#include <sys/time.h>
+
 typedef std::vector<unsigned> Path;
 
 //Directed acyclic word graph. for iterating valid words with a given prefix in log time
@@ -106,8 +108,9 @@ struct CompactDawg
 };
 
 
-void compress(std::vector<CompactDawg>& in)
+void compress(std::vector<CompactDawg>& in, std::vector<CompactDawg*>& roots)
 {
+	std::cout << "Compressing..." << std::flush;
 	//Share as much pointers as possible
 	std::map<std::vector<uint32_t>, CompactDawg*> nodes;
 	std::set<CompactDawg*> removed;
@@ -129,7 +132,6 @@ void compress(std::vector<CompactDawg>& in)
 			nodes[x] = &(*i);
 	}
 
-	std::cout << "Compressing, total nodes: " << in.size() << " after compression: " << in.size()-removed.size() << std::endl;
 
 	//And re-layout in memory
 	std::map<unsigned, unsigned> locations;
@@ -145,11 +147,14 @@ void compress(std::vector<CompactDawg>& in)
 			++j;
 		}
 	}
+	for(unsigned i = 0; i < roots.size(); ++i)
+		roots[i] = in.data() + locations[roots[i] - in.data()];
 
 	in.resize(j);
 	for(unsigned i = 0; i < in.size(); ++i)
 		in[i].children = locations[in[i].children] - i;
 
+	std::cout << " total nodes: " << in.size() + removed.size() << " after compression: " << in.size() << std::endl;
 }
 
 std::vector<CompactDawg> dawgToArray(Dawg* in)
@@ -171,7 +176,6 @@ std::vector<CompactDawg> dawgToArray(Dawg* in)
 
 		++out;
 	}
-	compress(compacted);
 	return compacted;
 }
 
@@ -451,16 +455,31 @@ void exhaustiveIterative(std::vector<CompactDawg*>& dawgs, const std::vector<std
 void multithread(std::vector<Dawg*>& dawgs, const std::vector<std::vector<char>>& pathIndicesRaw, const std::vector<Path>& originalPaths)
 {
 	std::map<Dawg*, std::vector<CompactDawg>> duplicates;
+	std::map<Dawg*, CompactDawg*> duplicates_single;
+
+	for(Dawg* d : dawgs)
+		if(!duplicates.count(d))
+			duplicates[d] = dawgToArray(d);
+
+	unsigned s = 0;
+	for(auto& x: duplicates)
+		s += x.second.size();
+	std::vector<CompactDawg> all;
+	all.reserve(s);
+
+	for(auto& x: duplicates)
+	{
+		duplicates_single[x.first] = all.data() + all.size();
+		for(auto& y: x.second)
+			all.push_back(y);
+	}
 
 	std::vector<CompactDawg*> converted;
 	converted.reserve(dawgs.size());
 	for(Dawg* d : dawgs)
-	{
-		if(!duplicates.count(d))
-			duplicates[d] = dawgToArray(d);
+		converted.push_back(duplicates_single[d]);
 
-		converted.push_back(&duplicates[d][0]);
-	}
+	compress(all, converted);
 
 
 	static int letter = 0;
@@ -484,8 +503,10 @@ void multithread(std::vector<Dawg*>& dawgs, const std::vector<std::vector<char>>
 	for(int i = 0; i < cores; i++)
 		threads.push_back(std::thread(f));
 
+	auto start = clock();
 	for(auto& t : threads)
 		t.join();
+	std::cout << "took: " << (double)(clock() - start)  / CLOCKS_PER_SEC << 's' << std::endl;
 }
 
 int main(int argc, char* argv[])
