@@ -111,15 +111,15 @@ struct CompactDawg
 };
 
 
-CompactDawg* compress(CompactDawg* in, CompactDawg* end)
+void compress(std::vector<CompactDawg>& in)
 {
 	//Share as much pointers as possible
 	std::map<std::vector<uint32_t>, CompactDawg*> nodes;
 	std::set<CompactDawg*> removed;
 
-	for(CompactDawg* i = end - 1; i >= in; --i)
+	for(auto i = in.rbegin(); i != in.rend(); ++i)
 	{
-		if(removed.count(i)) continue;
+		if(removed.count(&(*i))) continue;
 
 		std::vector<uint32_t> x;
 		i->normalized(x);
@@ -130,44 +130,44 @@ CompactDawg* compress(CompactDawg* in, CompactDawg* end)
 			i->children = nodes[x]->children;
 		}
 		else
-			nodes[x] = i;
+			nodes[x] = &(*i);
 	}
 
-	std::cout << "Compressing, total nodes: " << end-in << " after compression: " << end-in-removed.size() << std::endl;
+	std::cout << "Compressing, total nodes: " << in.size() << " after compression: " << in.size()-removed.size() << std::endl;
 
 	//And re-layout in memory
 	std::map<CompactDawg*, CompactDawg*> locations;
 
-	CompactDawg* i = in;
-	CompactDawg* j = in;
-	while(i < end)
+	auto i = in.begin();
+	auto j = in.begin();
+	while(i != in.end())
 	{
-		if(!removed.count(i))
+		if(!removed.count(&(*i)))
 		{
-			locations[i] = j;
+			locations[&(*i)] = &(*j);
 			if(j != i) *j = CompactDawg(i->children, i->mask);
 			++j;
 		}
 		++i;
 	}
 
-	for(CompactDawg* i = in; i < end-removed.size(); ++i)
-		i->children = locations[i->children];
-
-	return in;
+	in.resize(std::distance(in.begin(), j));
+	for(CompactDawg& d : in)
+		d.children = locations[d.children];
 }
 
-CompactDawg* dawgToArray(Dawg* in)
+std::vector<CompactDawg> dawgToArray(Dawg* in)
 {
 	unsigned s = in->size();
-	CompactDawg* compacted = new CompactDawg[s];
-	CompactDawg* out = compacted;
+	std::vector<CompactDawg> compacted;
+	compacted.resize(s);
+	auto out = compacted.begin();
 	std::queue<Dawg*> q;
 	q.push(in);
 	while(q.size())
 	{
 		Dawg* d = q.front();
-		*out = CompactDawg(d->children.size() ? out + q.size() : 0, d->mask);
+		*out = CompactDawg(d->children.size() ? &(*(out + q.size())) : 0, d->mask);
 		q.pop();
 
 		for(Dawg& e : d->children)
@@ -175,7 +175,7 @@ CompactDawg* dawgToArray(Dawg* in)
 
 		++out;
 	}
-	compacted = compress(compacted, compacted+s);
+	compress(compacted);
 	return compacted;
 }
 
@@ -454,16 +454,16 @@ void exhaustiveIterative(std::vector<CompactDawg*>& dawgs, const std::vector<std
 
 void multithread(std::vector<Dawg*>& dawgs, const std::vector<std::vector<char>>& pathIndicesRaw, const std::vector<Path>& originalPaths)
 {
-	std::map<Dawg*, CompactDawg*> duplicates;
+	std::map<Dawg*, std::vector<CompactDawg>> duplicates;
 
 	std::vector<CompactDawg*> converted;
 	converted.reserve(dawgs.size());
 	for(Dawg* d : dawgs)
 	{
-		if(duplicates.count(d))
-			converted.push_back(duplicates[d]);
-		else
-			converted.push_back(duplicates[d] = dawgToArray(d));
+		if(!duplicates.count(d))
+			duplicates[d] = dawgToArray(d);
+
+		converted.push_back(&duplicates[d][0]);
 	}
 
 
