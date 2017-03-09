@@ -21,7 +21,6 @@ struct Dawg
 {
 	//One child for each of the 26 letters value is 0 when that letter is not a possible prefix
 	std::vector<Dawg> children;
-	Dawg* parent;
 	unsigned mask = 0;
 
 	inline unsigned getIndex(char letter)
@@ -46,25 +45,13 @@ struct Dawg
 			{
 				dawg->mask |= 1 << (*word - 'a');
 				if(*(word+1))
-				{
-					dawg->children.reserve(dawg->children.size() + 1);
 					dawg->children.insert(dawg->children.begin() + dawg->getIndex(*word - 'a'), Dawg());
-				}
 			}
 
 			//go to next letter
 			if(dawg->children.size())
 				dawg = dawg->getChild(*word - 'a');
 			word++;
-		}
-	}
-
-	void fillParent()
-	{
-		for(Dawg& child : children)
-		{
-			child.parent = this;
-			child.fillParent();
 		}
 	}
 
@@ -88,8 +75,7 @@ struct CompactDawg
 
 	uint32_t depth()
 	{
-		if(children) return 1 + (this + children)->depth();
-		else return 1;
+		return 1 + (children ? (this + children)->depth() : 0);
 	}
 
 	void normalized(std::vector<uint32_t>& out)
@@ -241,9 +227,6 @@ std::vector<Dawg*> loadDictionaryFile(std::string filename, std::vector<Path> to
 			if(tuple.first.size() == line.size() && followsForm(tuple.first, line))
 				tuple.second->addWord(transformString(tuple.first, line).c_str(), line);
 
-
-	for(auto& tuple : lengths)
-		tuple.second->fillParent();
 
 	//Generate vector of dawgs, one for each Path
 	std::vector<Dawg*> dawgs;
