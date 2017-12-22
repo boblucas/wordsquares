@@ -23,12 +23,12 @@ struct Dawg
 	std::vector<Dawg> children;
 	unsigned mask = 0;
 
-	inline unsigned getIndex(char letter)
+	inline unsigned getIndex(unsigned char letter)
 	{
 		return __builtin_popcount(mask & ((1 << letter) - 1));
 	}
 
-	inline Dawg* getChild(char letter)
+	inline Dawg* getChild(unsigned char letter)
 	{
 		return &children[getIndex(letter)];
 	}
@@ -68,8 +68,8 @@ struct CompactDawg
 {
 	uint32_t children;
 	uint32_t mask;
-	inline unsigned getIndex(char letter) { return __builtin_popcount(mask & ((1 << letter) - 1)); }
-	inline CompactDawg* getChild(char letter) { return (this + children + getIndex(letter)); }
+	inline unsigned getIndex(unsigned char letter) { return __builtin_popcount(mask & ((1 << letter) - 1)); }
+	inline CompactDawg* getChild(unsigned char letter) { return (this + children + getIndex(letter)); }
 	CompactDawg() : children(0), mask(0) {}
 	CompactDawg(uint32_t children, uint32_t mask) : children(children), mask(mask) {}
 
@@ -204,39 +204,22 @@ std::string transformString(const Path& path, const std::string original)
 	return out;
 }
 
-
-//Creates a Dawg for each occuring length in topology
-//Returns a vector of the same length as the topology that contains the correct length Dawg for the path at the same index
-std::vector<Dawg*> loadDictionaryFile(std::string filename, std::vector<Path> topology)
+Dawg* loadDictionaryFile(std::string filename, const Path& path)
 {
 	//Create an empty Dawg for each length in topology
-	std::map<Path, Dawg*> lengths;
-
-	for(const Path& p : topology)
-	{
-		Path normalized = normalizePath(p);
-		if(lengths.count(normalized) == 0)
-			lengths.insert({normalized, new Dawg()});
-	}
+	Path normalized = normalizePath(path);
+	Dawg* dawg = new Dawg();
 
 	//Iterate every line in the dictionary file
 	std::ifstream file(filename);
 	std::string line;
 	while (std::getline(file, line))
-		for(auto& tuple : lengths)
-			if(tuple.first.size() == line.size() && followsForm(tuple.first, line))
-				tuple.second->addWord(transformString(tuple.first, line).c_str(), line);
+		if(normalized.size() == line.size() && followsForm(normalized, line))
+			dawg->addWord(transformString(normalized, line).c_str(), line);
 
-
-	//Generate vector of dawgs, one for each Path
-	std::vector<Dawg*> dawgs;
-	dawgs.resize(topology.size());
-	unsigned i = 0;
-	for(const Path& p : topology)
-		dawgs[i++] = lengths[normalizePath(p)];
-
-	return dawgs;
+	return dawg;
 }
+
 
 void optimizeToplogy(std::vector<Path>& topology)
 {
@@ -259,10 +242,16 @@ void optimizeToplogy(std::vector<Path>& topology)
 	}
 }
 
-//Essentially loads lines of comma seperated integers into a 2D array
-std::vector<Path> loadTopologyFile(std::string filename)
+struct Topology
 {
-	std::vector<Path> topology;
+	std::vector<Path > paths;
+	std::vector<Dawg*> dawgs;
+};
+
+//Essentially loads lines of comma seperated integers into a 2D array
+Topology loadTopologyFile(std::string filename)
+{
+	Topology topology;
 
 	//Iterate each line
 	std::ifstream file(filename);
@@ -274,22 +263,30 @@ std::vector<Path> loadTopologyFile(std::string filename)
 		//Lines starting with '#' are comments
 		if(line[0] == '#' || line.size() == 0)
 			continue;
-		
+	
+		//Get filename of dictionary
+		std::string numbers;
+		std::string dictionary_filename;
+		std::stringstream lineStream = std::stringstream(line);
+		std::getline(lineStream, numbers, ':');
+		std::getline(lineStream, dictionary_filename, ':');
+
 		//Iterate each number
 		std::string number;
-		std::stringstream lineStream = std::stringstream(line);
+		lineStream = std::stringstream(numbers);
 		while(std::getline(lineStream, number, ','))
 		{
 			//Convert string to integer and add to path
 			path.push_back(std::stoi(number));
 		}
 		
-		topology.push_back(path);
+		topology.paths.push_back(path);
+		topology.dawgs.push_back(loadDictionaryFile(dictionary_filename, path));
 	}
 
-	optimizeToplogy(topology);
+	optimizeToplogy(topology.paths);
 	std::cout << "optimized topology:" << std::endl;
-	for(Path& p : topology)
+	for(Path& p : topology.paths)
 	{
 		for(unsigned& l : p) std::cout << l << ' ';
 		std::cout << std::endl;
@@ -298,14 +295,14 @@ std::vector<Path> loadTopologyFile(std::string filename)
 	return topology;
 }
 
-void printResults(const std::vector<Path>& originalPaths, char* stack)
+void printResults(const std::vector<Path>& originalPaths, unsigned char* stack)
 {
 	std::set<std::string> occured;
 	std::string result = "";
 	for(const Path& path : originalPaths)
 	{
 		std::string word;
-		for(const char& c : path)
+		for(const unsigned char& c : path)
 			word += stack[(unsigned)c] + 'a';
 
 		if(occured.count(word))
@@ -323,9 +320,9 @@ void printResults(const std::vector<Path>& originalPaths, char* stack)
 }
 
 //Turn a 2D array of letter indices into a 2D array of letter to path indices
-std::vector<std::vector<char>> invertTopology(const std::vector<Path>& paths)
+std::vector<std::vector<unsigned char>> invertTopology(const std::vector<Path>& paths)
 {
-	std::vector<std::vector<char>> inverted;
+	std::vector<std::vector<unsigned char>> inverted;
 	for(unsigned i = 0; i < paths.size(); i++)
 	{
 		for(unsigned l : paths[i])
@@ -340,16 +337,16 @@ std::vector<std::vector<char>> invertTopology(const std::vector<Path>& paths)
 }
 
 
-std::vector<std::vector<char>> getCombinedPaths(const std::vector<std::vector<char>>& pathIndicesRaw)
+std::vector<std::vector<unsigned char>> getCombinedPaths(const std::vector<std::vector<unsigned char>>& pathIndicesRaw)
 {
-	std::vector<std::vector<char>> combined;
+	std::vector<std::vector<unsigned char>> combined;
 	combined.reserve(pathIndicesRaw.size());
 
 	for(const auto& paths : pathIndicesRaw)
 	{
-		std::vector<char> pathsCombined;
+		std::vector<unsigned char> pathsCombined;
 		pathsCombined.reserve(paths.size());
-		for(char c : paths)
+		for(unsigned char c : paths)
 			pathsCombined.push_back(c);
 		
 		combined.push_back(pathsCombined);
@@ -357,20 +354,20 @@ std::vector<std::vector<char>> getCombinedPaths(const std::vector<std::vector<ch
 	return combined;
 }
 
-inline uint32_t getMask(const std::vector<char>& indices, const std::vector<CompactDawg*>& dawgs)
+inline uint32_t getMask(const std::vector<unsigned char>& indices, const std::vector<CompactDawg*>& dawgs)
 {
 	uint32_t result = 0b11111111111111111111111111;
-	for(const char& i : indices)
+	for(const unsigned char& i : indices)
 		result &= dawgs[i]->mask;
 	return result;
 }
 
-void exhaustiveIterative(std::vector<CompactDawg*>& dawgs, const std::vector<std::vector<char>>& pathIndicesRaw, const std::vector<Path>& originalPaths, int start)
+void exhaustiveIterative(std::vector<CompactDawg*>& dawgs, const std::vector<std::vector<unsigned char>>& pathIndicesRaw, const std::vector<Path>& originalPaths, int start)
 {
-	std::vector<std::vector<char>> paths = getCombinedPaths(pathIndicesRaw);
+	std::vector<std::vector<unsigned char>> paths = getCombinedPaths(pathIndicesRaw);
 
 	unsigned letterCount = paths.size();
-	char stack[letterCount] = {};
+	unsigned char stack[letterCount] = {};
 	uint32_t maskStack[letterCount] = {getMask(paths[0], dawgs)};
 	CompactDawg* parents[letterCount][dawgs.size()];
 
@@ -385,7 +382,7 @@ void exhaustiveIterative(std::vector<CompactDawg*>& dawgs, const std::vector<std
 		if(((maskStack[i] >> start) & 1) == 0)
 			return;
 
-		for(const char& d : paths[i])
+		for(const unsigned char& d : paths[i])
 		{
 			parents[i][d] = dawgs[d];
 			dawgs[d] = dawgs[d]->getChild(stack[i]);
@@ -405,7 +402,7 @@ void exhaustiveIterative(std::vector<CompactDawg*>& dawgs, const std::vector<std
 		if(i < letterCount-1)
 		{
 			//Move down
-			for(const char& d : paths[i])
+			for(const unsigned char& d : paths[i])
 			{
 				parents[i][d] = dawgs[d];
 				dawgs[d] = dawgs[d]->getChild(stack[i]);
@@ -427,7 +424,7 @@ void exhaustiveIterative(std::vector<CompactDawg*>& dawgs, const std::vector<std
 		{
 			//Move up
 			--i;
-			for(const char& d : paths[i])
+			for(const unsigned char& d : paths[i])
 				dawgs[d] = parents[i][d];
 			//And right
 			++stack[i];
@@ -435,7 +432,7 @@ void exhaustiveIterative(std::vector<CompactDawg*>& dawgs, const std::vector<std
 	}
 }
 
-void multithread(std::vector<Dawg*>& dawgs, const std::vector<std::vector<char>>& pathIndicesRaw, const std::vector<Path>& originalPaths)
+void multithread(std::vector<Dawg*>& dawgs, const std::vector<std::vector<unsigned char>>& pathIndicesRaw, const std::vector<Path>& originalPaths)
 {
 	std::map<Dawg*, std::vector<CompactDawg>> duplicates;
 	std::map<Dawg*, CompactDawg*> duplicates_single;
@@ -480,7 +477,7 @@ void multithread(std::vector<Dawg*>& dawgs, const std::vector<std::vector<char>>
 		}
 	};
 
-	unsigned cores = 1;// std::thread::hardware_concurrency();
+	unsigned cores = 0;// std::thread::hardware_concurrency();
 	if(cores == 0) cores = 4;
 	std::vector<std::thread> threads;
 	for(int i = 0; i < cores; i++)
@@ -495,14 +492,13 @@ void multithread(std::vector<Dawg*>& dawgs, const std::vector<std::vector<char>>
 int main(int argc, char* argv[])
 {
 	//TODO verify that the files actually exist
-	if(argc < 3)
+	if(argc != 2)
 	{
-		std::cout << "Two arguments are required, a topology file and a dictionary file" << std::endl;
+		std::cout << "Exactly a single argument is expected, the topology file." << std::endl;
 		return 1;
 	}
 
-	std::vector<Path> paths = loadTopologyFile(std::string(argv[1]));
-	std::vector<Dawg*> dawgs = loadDictionaryFile(std::string(argv[2]), paths);
-	multithread(dawgs, invertTopology(paths), paths);
+	Topology topology = loadTopologyFile(std::string(argv[1]));
+	multithread(topology.dawgs, invertTopology(topology.paths), topology.paths);
 	return 0;
 }
