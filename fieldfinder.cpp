@@ -204,18 +204,25 @@ std::string transformString(const Path& path, const std::string original)
 	return out;
 }
 
+std::map<std::string, std::map<Path, Dawg*>> dictionaryCache;
+
 Dawg* loadDictionaryFile(std::string filename, const Path& path)
 {
-	//Create an empty Dawg for each length in topology
 	Path normalized = normalizePath(path);
+
+	if(dictionaryCache[filename].count(normalized))
+		return dictionaryCache[filename][normalized];
+
 	Dawg* dawg = new Dawg();
 
-	//Iterate every line in the dictionary file
 	std::ifstream file(filename);
 	std::string line;
 	while (std::getline(file, line))
 		if(normalized.size() == line.size() && followsForm(normalized, line))
 			dawg->addWord(transformString(normalized, line).c_str(), line);
+
+	if(!dictionaryCache.count(filename) || !dictionaryCache[filename].count(normalized))
+		dictionaryCache[filename][normalized] = dawg;
 
 	return dawg;
 }
