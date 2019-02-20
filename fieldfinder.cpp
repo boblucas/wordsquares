@@ -14,6 +14,8 @@
 
 #include <sys/time.h>
 
+constexpr bool AllowDuplicateWords = true;
+
 typedef std::vector<unsigned> Path;
 
 //Directed acyclic word graph. for iterating valid words with a given prefix in log time
@@ -114,7 +116,7 @@ void compress(std::vector<CompactDawg>& in, std::vector<CompactDawg*>& roots)
 			i->listChildren(removed);
 			i->children = (uint32_t)((nodes[x] + nodes[x]->children) - &(*i));
 		}
-		else
+		else if(x.size() < 100)
 			nodes[x] = &(*i);
 	}
 
@@ -312,7 +314,7 @@ void printResults(const std::vector<Path>& originalPaths, unsigned char* stack)
 		for(const unsigned char& c : path)
 			word += stack[(unsigned)c] + 'a';
 
-		if(occured.count(word))
+		if(!AllowDuplicateWords && occured.count(word))
 			return;
 
 		occured.insert(word);
@@ -499,13 +501,16 @@ void multithread(std::vector<Dawg*>& dawgs, const std::vector<std::vector<unsign
 int main(int argc, char* argv[])
 {
 	//TODO verify that the files actually exist
-	if(argc != 2)
+	if(argc < 2)
 	{
-		std::cout << "Exactly a single argument is expected, the topology file." << std::endl;
+		std::cout << "At least a single argument is expected, the topology file." << std::endl;
 		return 1;
 	}
 
-	Topology topology = loadTopologyFile(std::string(argv[1]));
-	multithread(topology.dawgs, invertTopology(topology.paths), topology.paths);
+	for(int c = 1; c < argc; ++c)
+	{
+		Topology topology = loadTopologyFile(std::string(argv[c]));
+		multithread(topology.dawgs, invertTopology(topology.paths), topology.paths);
+	}
 	return 0;
 }
